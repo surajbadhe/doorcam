@@ -1,0 +1,23 @@
+logLevel: info
+rtsp: yes
+rtspAddress: :8554
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+api: yes
+apiAddress: :9997
+authMethod: http
+authHTTPAddress: http://api:8000/internal/mediamtx/auth
+authHTTPExclude:
+  - action: api
+paths:
+  "~^talk/[^/]+$":
+    record: no
+  all_others:
+    record: yes
+    recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 1m
+    recordDeleteAfter: 0s
+

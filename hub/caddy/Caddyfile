@@ -1,0 +1,30 @@
+{
+	admin off
+	default_sni {$DOORCAM_HOST:localhost}
+}
+
+https://{$DOORCAM_HOST:localhost} {
+	tls internal
+	encode zstd gzip
+
+	handle /healthz {
+		reverse_proxy api:8000
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle /cam/* {
+		reverse_proxy mediamtx:8889
+	}
+
+	handle /talk/* {
+		reverse_proxy mediamtx:8889
+	}
+
+	handle {
+		root * /srv
+		file_server
+	}
+}

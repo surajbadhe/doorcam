@@ -1,0 +1,106 @@
+﻿name: doorcam
+services:
+  mediamtx:
+    image: doorcam-mediamtx:1.21.1
+    build:
+      context: ./mediamtx
+    restart: unless-stopped
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: ${DOORCAM_HOST:-localhost}
+    ports:
+      - "8554:8554/tcp"
+      - "8189:8189/udp"
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - recordings:/recordings
+
+  api:
+    build:
+      context: ./api
+    restart: unless-stopped
+    environment:
+      DATABASE_PATH: /data/doorcam.sqlite3
+      RECORDINGS_PATH: /recordings
+      SNAPSHOTS_PATH: /recordings/snapshots
+      INTERNAL_WORKER_TOKEN: ${INTERNAL_WORKER_TOKEN:?Set INTERNAL_WORKER_TOKEN in .env}
+      RETENTION_DEFAULT_DAYS: ${RETENTION_DEFAULT_DAYS:-7}
+    volumes:
+      - api_data:/data
+      - recordings:/recordings
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  recording-worker:
+    build:
+      context: ./workers
+    restart: unless-stopped
+    command: ["python", "recordings.py"]
+    environment:
+      DATABASE_PATH: /data/doorcam.sqlite3
+      RECORDINGS_PATH: /recordings
+      RETENTION_FREE_PERCENT: ${RETENTION_FREE_PERCENT:-10}
+      RETENTION_DEFAULT_DAYS: ${RETENTION_DEFAULT_DAYS:-7}
+    volumes:
+      - api_data:/data
+      - recordings:/recordings
+    depends_on:
+      api:
+        condition: service_healthy
+
+  motion-worker:
+    build:
+      context: ./workers
+    restart: unless-stopped
+    command: ["python", "motion.py"]
+    environment:
+      DATABASE_PATH: /data/doorcam.sqlite3
+      RECORDINGS_PATH: /recordings
+      MEDIAMTX_RTSP: rtsp://mediamtx:8554
+      MEDIAMTX_API: http://mediamtx:9997
+      INTERNAL_WORKER_TOKEN: ${INTERNAL_WORKER_TOKEN:?Set INTERNAL_WORKER_TOKEN in .env}
+      MOTION_FPS: ${MOTION_FPS:-3}
+      MOTION_THRESHOLD: ${MOTION_THRESHOLD:-22}
+      MOTION_MIN_AREA: ${MOTION_MIN_AREA:-900}
+      MOTION_COOLDOWN_SECONDS: ${MOTION_COOLDOWN_SECONDS:-15}
+    volumes:
+      - api_data:/data
+      - recordings:/recordings
+    depends_on:
+      api:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+    environment:
+      DOORCAM_HOST: ${DOORCAM_HOST:-localhost}
+    ports:
+      - "${DOORCAM_HTTP_PORT:-8080}:80/tcp"
+      - "${DOORCAM_HTTPS_PORT:-8443}:443/tcp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../viewer-web:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD", "nc", "-z", "-w", "2", "127.0.0.1", "443"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  api_data:
+  recordings:
+  caddy_data:
+  caddy_config:
+
